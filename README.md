@@ -27,4 +27,4 @@ Learn more
 - [Message Query Language (MQL) reference](https://docs.sublimesecurity.com/docs/message-query-language)
 - [Release log](https://new.sublimesecurity.com)
 
-Follow us on [Twitter](https://twitter.com/sublime_sec) for updates on new rules and detection capabilities.
+Follow us on [X](https://x.com/sublime_sec) for updates on new rules and detection capabilities.
