@@ -100,7 +100,7 @@ jobs:
 
       - name: Get changed detection-rules
         id: changed-files
-        uses: tj-actions/changed-files@v39
+        uses: tj-actions/changed-files@v41
         with:
           files: "detection-rules/**"
           recover_deleted_files: true
