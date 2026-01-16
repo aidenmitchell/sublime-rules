@@ -1,0 +1,12 @@
+name: "Test Example Rule - Suspicious Email Pattern"
+description: "A test rule for validating the sync workflow"
+type: rule
+severity: medium
+source: |
+  type.inbound
+  and sender.email.domain.domain != "example.com"
+  and any(body.links, .href_url.domain.domain == "suspicious-site.com")
+tags:
+  - "test"
+  - "example"
+id: "f2edbb0d-dbb5-5aed-ab6b-c209a3b8bdd3"
