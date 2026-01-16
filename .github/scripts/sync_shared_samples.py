@@ -41,6 +41,7 @@ from lib import (
     save_file,
     clean_output_folder,
     count_yaml_rules_in_pr,
+    post_exclusion_comment_if_needed,
 )
 
 # Configuration from environment
@@ -390,6 +391,13 @@ def handle_pr_rules(session, write_session):
                 if not has_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL):
                     print(f"\tPR #{pr_number} doesn't have the '{BULK_PR_LABEL}' label. Applying...")
                     apply_label(write_session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL)
+                    # Post comment explaining the limit
+                    post_exclusion_comment_if_needed(
+                        write_session, REPO_OWNER, REPO_NAME, pr_number,
+                        BULK_PR_LABEL,
+                        max_rules=MAX_RULES_PER_PR,
+                        rule_count=yaml_rule_count
+                    )
 
                 continue
             else:
