@@ -1,0 +1,10 @@
+name: "Test bulk v2 rule 4"
+description: "Test rule for bulk PR exclusion testing v2"
+type: "rule"
+severity: "low"
+source: |
+  type.inbound
+  and sender.email.domain.domain == "test-bulk-v2.example.com"
+tags:
+  - "Test"
+id: "81def676-4c19-5aff-a7a7-2fcc9c745671"
