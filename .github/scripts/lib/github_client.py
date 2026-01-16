@@ -1,25 +1,26 @@
 """
 GitHub API session setup with retry logic.
 """
-import os
-
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
-def create_github_session(token=None):
+def create_github_session(token):
     """
     Create a requests session configured for GitHub API with retry logic.
 
     Args:
-        token (str, optional): GitHub token. If not provided, uses GITHUB_TOKEN env var.
+        token (str): GitHub token. Required.
 
     Returns:
         requests.Session: Configured session with retry strategy and auth headers.
+
+    Raises:
+        ValueError: If token is not provided.
     """
-    if token is None:
-        token = os.getenv('GITHUB_TOKEN')
+    if not token:
+        raise ValueError("GitHub token is required")
 
     # Configure retry strategy
     retry_strategy = Retry(
