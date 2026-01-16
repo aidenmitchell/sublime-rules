@@ -24,38 +24,27 @@ from lib import (
     # Constants
     DO_NOT_MERGE_LABEL,
     BULK_PR_LABEL,
-    AUTHOR_MEMBERSHIP_EXCLUSION_LABEL,
     DEFAULT_MAX_RULES_PER_PR,
     DEFAULT_DELETE_RULES_DELAY_DAYS,
     DEFAULT_AUTHOR_TAG_PREFIX,
     DEFAULT_RULE_STATUS_PREFIX,
     DEFAULT_OPEN_PR_TAG,
-    DEFAULT_ORG_NAME,
-    DEFAULT_COMMENT_TRIGGER,
     # Functions
     create_github_session,
-    get_pull_requests,
-    get_files_for_pull_request,
+    has_label,
     apply_label,
     remove_label,
-    is_user_in_org,
-    has_trigger_comment,
-    post_exclusion_comment_if_needed,
     add_id_to_yaml,
     add_block,
     rename_rules,
     get_file_contents,
     save_file,
     clean_output_folder,
-    should_process_file,
     count_yaml_rules_in_pr,
-    # Cache
-    PRCache,
 )
 
 # Configuration from environment
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
-GITHUB_WRITE_TOKEN = os.getenv('GITHUB_WRITE_TOKEN')  # Separate token for write operations (labels, comments)
 SUBLIME_API_TOKEN = os.getenv('SUBLIME_API_TOKEN')
 REPO_OWNER = os.getenv('REPO_OWNER', 'sublime-security')
 REPO_NAME = os.getenv('REPO_NAME', 'sublime-rules')
@@ -81,12 +70,6 @@ DELETE_RULES_FROM_CLOSED_PRS_DELAY = int(os.getenv('DELETE_RULES_FROM_CLOSED_PRS
 # Bulk PR limits
 SKIP_BULK_PRS = os.getenv('SKIP_BULK_PRS', 'true').lower() == 'true'
 MAX_RULES_PER_PR = int(os.getenv('MAX_RULES_PER_PR', str(DEFAULT_MAX_RULES_PER_PR)))
-
-# Organization membership filtering
-FILTER_BY_ORG_MEMBERSHIP = os.getenv('FILTER_BY_ORG_MEMBERSHIP', 'false').lower() == 'true'
-ORG_NAME = os.getenv('ORG_NAME', DEFAULT_ORG_NAME)
-INCLUDE_PRS_WITH_COMMENT = os.getenv('INCLUDE_PRS_WITH_COMMENT', 'true').lower() == 'true'
-COMMENT_TRIGGER = os.getenv('COMMENT_TRIGGER', DEFAULT_COMMENT_TRIGGER)
 
 # Create output folder if it doesn't exist
 if not os.path.exists(OUTPUT_FOLDER):
@@ -151,6 +134,91 @@ def sublime_delete_rule(rule_id):
     return response.ok
 
 
+def get_open_pull_requests(session):
+    """Fetch all open pull requests from the repository."""
+    pull_requests = []
+    page = 1
+    per_page = 30
+
+    while True:
+        url = f'https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/pulls'
+        params = {'page': page, 'per_page': per_page, 'sort': 'updated', 'direction': 'desc'}
+        print(f"Fetching page {page} of Pull Requests")
+        response = session.get(url, params=params)
+        response.raise_for_status()
+
+        pull_requests.extend(response.json())
+
+        if 'Link' in response.headers:
+            links = response.headers['Link'].split(', ')
+            has_next = any('rel="next"' in link for link in links)
+        else:
+            has_next = False
+
+        if not has_next:
+            print(f"Fetched page {page} of Pull Requests")
+            print(f"PRs on page {page}: {len(response.json())}")
+            break
+
+        print(f"Fetched page {page} of Pull Requests")
+        print(f"PRs on page {page}: {len(response.json())}")
+        print(f"PRs found so far: {len(pull_requests)}")
+        print(f"Moving to page {page + 1}")
+        page += 1
+
+    print(f"Total PRs: {len(pull_requests)}")
+    return pull_requests
+
+
+def get_closed_pull_requests(session):
+    """Fetch recently closed pull requests from the repository."""
+    closed_pull_requests = []
+    page = 1
+    per_page = 30
+    max_closed = 60
+
+    while len(closed_pull_requests) <= max_closed:
+        if len(closed_pull_requests) >= max_closed:
+            print("hit max closed prs length")
+            break
+
+        url = f'https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/pulls'
+        params = {'page': page, 'per_page': per_page, 'state': 'closed', 'sort': 'updated', 'direction': 'desc'}
+        print(f"Fetching page {page} of CLOSED Pull Requests")
+        response = session.get(url, params=params)
+        response.raise_for_status()
+
+        closed_pull_requests.extend(response.json())
+
+        if 'Link' in response.headers:
+            links = response.headers['Link'].split(', ')
+            has_next = any('rel="next"' in link for link in links)
+        else:
+            has_next = False
+
+        if not has_next:
+            print(f"Fetched page {page} of Pull Requests")
+            print(f"PRs on page {page}: {len(response.json())}")
+            break
+
+        print(f"Fetched page {page} of CLOSED Pull Requests")
+        print(f"CLOSED PRs on page {page}: {len(response.json())}")
+        print(f"CLOSED PRs found so far: {len(closed_pull_requests)}")
+        print(f"Moving to page {page + 1}")
+        page += 1
+
+    print(f"Total CLOSED PRs: {len(closed_pull_requests)}")
+    return closed_pull_requests
+
+
+def get_files_for_pull_request(session, pr_number):
+    """Fetch files changed in a pull request."""
+    url = f'https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/pulls/{pr_number}/files'
+    response = session.get(url)
+    response.raise_for_status()
+    return response.json()
+
+
 def handle_closed_prs(session):
     """
     Handle closed PRs by deleting rules from closed PRs after a delay period.
@@ -177,7 +245,7 @@ def handle_closed_prs(session):
         print(line)
 
     deleted_ids = set()
-    closed_pull_requests = get_pull_requests(session, REPO_OWNER, REPO_NAME, state='closed', max_results=60)
+    closed_pull_requests = get_closed_pull_requests(session)
 
     for closed_pr in closed_pull_requests:
         pr_number = closed_pr['number']
@@ -257,20 +325,13 @@ def handle_closed_prs(session):
     return deleted_ids
 
 
-def handle_pr_rules(session, write_session=None):
+def handle_pr_rules(session):
     """
     Process open PRs to sync rules to shared-samples branch.
-
-    Args:
-        session: GitHub API session for read operations
-        write_session: GitHub API session for write operations (labels, comments).
-                      If None, uses session for all operations.
 
     Returns:
         set: Set of filenames that were processed
     """
-    if write_session is None:
-        write_session = session
     header = [
         ' _____                    ______      _ _   ______                           _       ',
         '|  _  |                   | ___ \\    | | |  | ___ \\                         | |      ',
@@ -285,56 +346,20 @@ def handle_pr_rules(session, write_session=None):
     for line in header:
         print(line)
 
-    pull_requests = get_pull_requests(session, REPO_OWNER, REPO_NAME)
+    pull_requests = get_open_pull_requests(session)
     new_files = set()
-    cache = PRCache()
 
-    # === PARALLEL PREFETCH PHASE ===
-    # Step 1: Prefetch all labels in parallel
-    all_pr_numbers = [pr['number'] for pr in pull_requests]
-    cache.prefetch_labels(session, REPO_OWNER, REPO_NAME, all_pr_numbers)
-
-    # Step 2: Filter to processable PRs and prefetch their files
-    processable_prs = []
-    for pr in pull_requests:
-        pr_number = pr['number']
-        # Skip non-main and do-not-merge PRs
-        if pr['base']['ref'] != 'main':
-            continue
-        if cache.has_label(session, REPO_OWNER, REPO_NAME, pr_number, DO_NOT_MERGE_LABEL):
-            continue
-        processable_prs.append(pr)
-
-    processable_pr_numbers = [pr['number'] for pr in processable_prs]
-    cache.prefetch_pr_files(session, REPO_OWNER, REPO_NAME, processable_pr_numbers)
-
-    # Step 3: Collect all file content specs and prefetch in parallel
-    file_specs = []
-    for pr in processable_prs:
-        pr_number = pr['number']
-        latest_sha = pr['head']['sha']
-        files = cache.get_pr_files(session, REPO_OWNER, REPO_NAME, pr_number)
-
-        # Check bulk limit using cached files
-        if SKIP_BULK_PRS:
-            yaml_rule_count = count_yaml_rules_in_pr(files)
-            if yaml_rule_count > MAX_RULES_PER_PR:
-                continue  # Skip bulk PRs for content prefetch
-
-        for file in files:
-            if should_process_file(file, INCLUDE_ADDED, INCLUDE_UPDATES):
-                file_specs.append((file['filename'], latest_sha))
-
-    cache.prefetch_file_contents(session, REPO_OWNER, REPO_NAME, file_specs)
-    print("Prefetch complete, processing PRs...\n")
-
-    # === PROCESSING PHASE (using cached data) ===
     for pr in pull_requests:
         pr_number = pr['number']
 
         # Check for do-not-merge label - skip entirely if present
-        if cache.has_label(session, REPO_OWNER, REPO_NAME, pr_number, DO_NOT_MERGE_LABEL):
+        if has_label(session, REPO_OWNER, REPO_NAME, pr_number, DO_NOT_MERGE_LABEL):
             print(f"Skipping PR #{pr_number} (has '{DO_NOT_MERGE_LABEL}' label): {pr['title']}")
+            continue
+
+        # Skip draft PRs
+        if pr['draft']:
+            print(f"Skipping draft PR #{pr_number}: {pr['title']}")
             continue
 
         # Skip non-main PRs
@@ -342,61 +367,13 @@ def handle_pr_rules(session, write_session=None):
             print(f"Skipping non-main branch PR #{pr_number}: {pr['title']} -- dest branch: {pr['base']['ref']}")
             continue
 
-        # Organization membership filtering
-        process_pr = True
-        if FILTER_BY_ORG_MEMBERSHIP:
-            author_in_org = is_user_in_org(session, pr['user']['login'], ORG_NAME, cache=cache)
-            has_comment = False
-
-            if author_in_org:
-                print(f"Processing PR #{pr_number}: {pr['title']}")
-                print(f"\tAuthor {pr['user']['login']} is in {ORG_NAME}")
-                # Remove exclusion label if present
-                if cache.has_label(session, REPO_OWNER, REPO_NAME, pr_number, AUTHOR_MEMBERSHIP_EXCLUSION_LABEL):
-                    remove_label(write_session, REPO_OWNER, REPO_NAME, pr_number, AUTHOR_MEMBERSHIP_EXCLUSION_LABEL, cache=cache)
-            else:
-                # Check for trigger comment if author not in org
-                if INCLUDE_PRS_WITH_COMMENT:
-                    has_comment = has_trigger_comment(
-                        session, REPO_OWNER, REPO_NAME, pr_number, ORG_NAME, COMMENT_TRIGGER, cache=cache
-                    )
-
-                    if has_comment:
-                        print(f"Processing PR #{pr_number}: {pr['title']}")
-                        # Remove exclusion label if present
-                        if cache.has_label(session, REPO_OWNER, REPO_NAME, pr_number, AUTHOR_MEMBERSHIP_EXCLUSION_LABEL):
-                            print(f"\tRemoving '{AUTHOR_MEMBERSHIP_EXCLUSION_LABEL}' label due to trigger comment")
-                            remove_label(write_session, REPO_OWNER, REPO_NAME, pr_number, AUTHOR_MEMBERSHIP_EXCLUSION_LABEL, cache=cache)
-
-                if not has_comment:
-                    print(f"Skipping PR #{pr_number}: Author {pr['user']['login']} is not in {ORG_NAME} and no trigger comment")
-
-                    # Apply exclusion label if not already present
-                    if not cache.has_label(session, REPO_OWNER, REPO_NAME, pr_number, AUTHOR_MEMBERSHIP_EXCLUSION_LABEL):
-                        print(f"\tApplying '{AUTHOR_MEMBERSHIP_EXCLUSION_LABEL}' label...")
-                        apply_label(write_session, REPO_OWNER, REPO_NAME, pr_number, AUTHOR_MEMBERSHIP_EXCLUSION_LABEL, cache=cache)
-                        # Post comment explaining how to enable sync
-                        post_exclusion_comment_if_needed(
-                            write_session, REPO_OWNER, REPO_NAME, pr_number,
-                            AUTHOR_MEMBERSHIP_EXCLUSION_LABEL,
-                            cache=cache,
-                            org_name=ORG_NAME,
-                            comment_trigger=COMMENT_TRIGGER
-                        )
-
-                    process_pr = False
-
-        if not process_pr:
-            continue
-
-        if not FILTER_BY_ORG_MEMBERSHIP:
-            print(f"Processing PR #{pr_number}: {pr['title']}")
+        print(f"Processing PR #{pr_number}: {pr['title']}")
 
         # Get the latest commit SHA
         latest_sha = pr['head']['sha']
         print(f"\tLatest commit SHA: {latest_sha}")
 
-        files = cache.get_pr_files(session, REPO_OWNER, REPO_NAME, pr_number)
+        files = get_files_for_pull_request(session, pr_number)
 
         # Check if PR has too many rules
         if SKIP_BULK_PRS:
@@ -405,73 +382,70 @@ def handle_pr_rules(session, write_session=None):
                 print(f"\tSkipping PR #{pr_number}: Contains {yaml_rule_count} YAML rules (max allowed: {MAX_RULES_PER_PR})")
 
                 # Apply bulk label if not already present
-                if not cache.has_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL):
+                if not has_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL):
                     print(f"\tPR #{pr_number} doesn't have the '{BULK_PR_LABEL}' label. Applying...")
-                    apply_label(write_session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL, cache=cache)
-                    # Post comment explaining the limit
-                    post_exclusion_comment_if_needed(
-                        write_session, REPO_OWNER, REPO_NAME, pr_number,
-                        BULK_PR_LABEL,
-                        cache=cache,
-                        max_rules=MAX_RULES_PER_PR,
-                        rule_count=yaml_rule_count
-                    )
+                    apply_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL)
 
                 continue
             else:
                 # Remove bulk label if rule count is now under limit
-                if cache.has_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL):
-                    remove_label(write_session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL, cache=cache)
+                if has_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL):
+                    remove_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL)
 
         # Process files in the PR
         for file in files:
             print(f"\tStatus of {file['filename']}: {file['status']}")
+            process_file = False
 
-            if not should_process_file(file, INCLUDE_ADDED, INCLUDE_UPDATES):
-                # Log why file was skipped
-                if not (file['filename'].startswith('detection-rules/') and file['filename'].endswith('.yml')):
-                    print(f"\tSkipping {file['status']} file: {file['filename']} in PR #{pr_number} -- not a detection rule")
-                elif file['status'] not in ['added', 'modified', 'changed']:
-                    print(f"\tSkipping {file['status']} file: {file['filename']} in PR #{pr_number} -- unmanaged file status")
+            # Check file type and status
+            if (file['status'] in ['added', 'modified', 'changed'] and
+                file['filename'].startswith('detection-rules/') and
+                    file['filename'].endswith('.yml')):
+                if file['status'] == "added" and INCLUDE_ADDED:
+                    process_file = True
+                elif file['status'] in ['modified', 'changed'] and INCLUDE_UPDATES:
+                    process_file = True
                 else:
                     print(f"\tSkipping {file['status']} file: {file['filename']} in PR #{pr_number} -- INCLUDE_UPDATES == {INCLUDE_UPDATES}, INCLUDE_ADDED == {INCLUDE_ADDED}")
-                continue
+            else:
+                print(f"\tSkipping {file['status']} file: {file['filename']} in PR #{pr_number} -- unmanaged file status")
 
-            # Fetch file content (from cache)
-            content = cache.get_file_content(
-                session, REPO_OWNER, REPO_NAME,
-                file['filename'], latest_sha
-            )
+            if process_file:
+                # Fetch file content
+                content = get_file_contents(
+                    session, REPO_OWNER, REPO_NAME,
+                    file['filename'], latest_sha
+                )
 
-            # Process the file
-            target_save_filename = f"{pr_number}_{os.path.basename(file['filename'])}"
+                # Process the file
+                target_save_filename = f"{pr_number}_{os.path.basename(file['filename'])}"
 
-            # Get modified content and original ID
-            modified_content, original_id = add_id_to_yaml(content, target_save_filename)
+                # Get modified content and original ID
+                modified_content, original_id = add_id_to_yaml(content, target_save_filename)
 
-            # Add author tag if enabled
-            if ADD_AUTHOR_TAG:
-                modified_content = add_block(modified_content, 'tags', f"{AUTHOR_TAG_PREFIX}{pr['user']['login']}")
+                # Add author tag if enabled
+                if ADD_AUTHOR_TAG:
+                    modified_content = add_block(modified_content, 'tags', f"{AUTHOR_TAG_PREFIX}{pr['user']['login']}")
 
-            # Add open PR tag if enabled
-            if CREATE_OPEN_PR_TAG:
-                modified_content = add_block(modified_content, 'tags', OPEN_PR_TAG)
+                # Add open PR tag if enabled
+                if CREATE_OPEN_PR_TAG:
+                    modified_content = add_block(modified_content, 'tags', OPEN_PR_TAG)
 
-            # Add rule status tag if enabled
-            if ADD_RULE_STATUS_TAG:
-                modified_content = add_block(modified_content, 'tags', f"{RULE_STATUS_PREFIX}{file['status']}")
+                # Add rule status tag if enabled
+                if ADD_RULE_STATUS_TAG:
+                    modified_content = add_block(modified_content, 'tags', f"{RULE_STATUS_PREFIX}{file['status']}")
 
-            # Add PR reference if enabled
-            if ADD_PR_REFERENCE:
-                modified_content = add_block(modified_content, 'references', pr['html_url'])
+                # Add PR reference if enabled
+                if ADD_PR_REFERENCE:
+                    modified_content = add_block(modified_content, 'references', pr['html_url'])
 
-            # Always rename rules with PR# prefix (required for handle_closed_prs)
-            modified_content = rename_rules(modified_content, pr)
+                # Always rename rules with PR# prefix (required for handle_closed_prs)
+                modified_content = rename_rules(modified_content, pr)
 
-            # Save the file
-            save_file(OUTPUT_FOLDER, target_save_filename, modified_content)
-            new_files.add(target_save_filename)
-            print(f"\tSaved: {target_save_filename}")
+                # Save the file
+                save_file(OUTPUT_FOLDER, target_save_filename, modified_content)
+                new_files.add(target_save_filename)
+                print(f"\tSaved: {target_save_filename}")
 
     # Clean up files no longer in open PRs
     clean_output_folder(OUTPUT_FOLDER, new_files)
@@ -492,14 +466,6 @@ if __name__ == '__main__':
         print(line)
 
     print("Running shared-samples sync...")
-
-    # Debug: Check token configuration
-    print(f"Debug: GITHUB_TOKEN is {'set' if GITHUB_TOKEN else 'NOT SET'}")
-    print(f"Debug: GITHUB_WRITE_TOKEN is {'set' if GITHUB_WRITE_TOKEN else 'NOT SET'}")
-    if GITHUB_TOKEN and GITHUB_WRITE_TOKEN:
-        print(f"Debug: Tokens are {'SAME' if GITHUB_TOKEN == GITHUB_WRITE_TOKEN else 'DIFFERENT'}")
-
     session = create_github_session(GITHUB_TOKEN)
-    write_session = create_github_session(GITHUB_WRITE_TOKEN)
-    handle_pr_rules(session, write_session)
+    handle_pr_rules(session)
     handle_closed_prs(session)

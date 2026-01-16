@@ -28,6 +28,12 @@ jobs:
     - name: Install dependencies
       run: pip install requests
 
+    - name: Checkout scripts from main branch
+      uses: actions/checkout@v4
+      with:
+        ref: main
+        path: scripts-main
+
     - name: Create and switch to shared-samples branch
       run: |
         git fetch --all
@@ -60,7 +66,9 @@ jobs:
         ORG_NAME: 'sublime-security'
         INCLUDE_PRS_WITH_COMMENT: 'true'
         COMMENT_TRIGGER: '/update-shared-samples'
-      run: python .github/scripts/sync_shared_samples.py
+      run: |
+        python scripts-main/.github/scripts/sync_shared_samples.py
+        rm -rf scripts-main
 
     - name: Commit changes
       env:
