@@ -1,0 +1,28 @@
+name: "Link: Excessive URL rewrite encoders"
+description: "Detects URLs with many (excessive) encoding patterns, including multiple instances of the same encoder or four or more distinct encoders. These techniques are commonly used to obfuscate malicious URLs and evade security filters."
+type: "rule"
+severity: "high"
+source: |
+  type.inbound
+  and any(body.current_thread.links,
+          (
+            // 4 or more encoders but they are all distinct
+            length(.href_url.rewrite.encoders) >= 4
+            and length(distinct(.href_url.rewrite.encoders)) >= 4
+          )
+  )
+tags:
+  - "Attack surface reduction"
+attack_types:
+  - "Credential Phishing"
+  - "Malware/Ransomware"
+tactics_and_techniques:
+  - "Encryption"
+  - "Evasion"
+detection_methods:
+  - "URL analysis"
+  - "Content analysis"
+id: "4cbb2de6-ba75-5a24-8bc0-bfaf0c6925d2"
+og_id: "b88e53a7-9947-5c6b-bea9-d67906634655"
+testing_pr: 3622
+testing_sha: 5885bfdc567dbf1d39cd09e4ca9cd9d1a38dc382
