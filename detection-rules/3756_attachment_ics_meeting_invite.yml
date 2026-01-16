@@ -1,0 +1,23 @@
+name: "Attachment: ICS file with meeting prefix"
+description: "Detects incoming messages with a single ICS calendar file attachment that has a filename starting with 'meeting_'."
+type: "rule"
+severity: "high"
+source: |
+  type.inbound
+  and length(attachments) == 1
+  and any(attachments,
+          .file_extension == "ics"
+          and regex.match(.file_name, '(meeting_)[-azA-z0-9]{5}\.ics')
+  )
+attack_types:
+  - "BEC/Fraud"
+  - "Credential Phishing"
+tactics_and_techniques:
+  - "Social engineering"
+detection_methods:
+  - "File analysis"
+  - "Header analysis"
+id: "5800490c-1a6f-5435-b593-a505507cca09"
+og_id: "383a5810-0b85-55a8-ac9b-e7135823317b"
+testing_pr: 3756
+testing_sha: 6804bc83f3a0701a88d228259ea79e5d0a824d36
