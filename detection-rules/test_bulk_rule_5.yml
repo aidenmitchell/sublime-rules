@@ -7,3 +7,4 @@ source: |
   and sender.email.domain.domain == "example.com"
 tags:
   - "test"
+id: "e40fdc4d-c723-5d80-8235-a901af0f208e"
