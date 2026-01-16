@@ -1,0 +1,22 @@
+name: "Link: Domain contains confusable characters"
+description: "Detects links containing Unicode confusable characters that could be used to spoof legitimate domains by replacing standard characters with visually similar alternatives."
+type: "rule"
+severity: "medium"
+source: |
+  type.inbound
+  and any(body.links, .href_url.url != strings.replace_confusables(.href_url.url))
+tags:
+ - "Attack surface reduction"
+attack_types:
+  - "Credential Phishing"
+tactics_and_techniques:
+  - "Evasion"
+  - "Lookalike domain"
+  - "Punycode"
+detection_methods:
+  - "Content analysis"
+  - "URL analysis"
+id: "8ad50887-8da7-5352-8a66-b162930bf02e"
+og_id: "75672610-e11c-5650-8139-43f12870f294"
+testing_pr: 3500
+testing_sha: 2fc961aaa2abb99ae7b875976b3d18b72683e3e7
