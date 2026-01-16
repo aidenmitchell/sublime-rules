@@ -1,0 +1,25 @@
+name: "PR# 5 - Test Link Analysis Rule - Credential Phishing"
+description: "Test rule that uses ml.link_analysis to detect credential phishing pages"
+type: "rule"
+severity: "high"
+authors:
+  - github.com/aidenmitchell
+source: |
+  type.inbound
+  and any(body.links,
+      ml.link_analysis(.).credentialed_phish.disposition == "phishing"
+  )
+tags:
+  - "Credential Phishing"
+  - pr_author_aidenmitchell
+  - created_from_open_prs
+  - rule_status_added
+attack_types:
+  - "Credential Phishing"
+tactics_and_techniques:
+  - "T1566"
+detection_methods:
+  - "URL analysis"
+id: "cbf3b50f-6a9c-59c8-846d-b74f5efcb4d0"
+references:
+  - https://github.com/aidenmitchell/sublime-rules/pull/5
