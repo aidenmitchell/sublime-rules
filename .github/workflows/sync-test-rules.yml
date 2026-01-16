@@ -28,6 +28,12 @@ jobs:
     - name: Install dependencies
       run: pip install requests
 
+    - name: Checkout scripts from main branch
+      uses: actions/checkout@v4
+      with:
+        ref: main
+        path: scripts-main
+
     - name: Create and switch to test-rules branch
       run: |
         git fetch --all
@@ -57,7 +63,9 @@ jobs:
         MAX_RULES_PER_PR: '10'
         # Labeling
         ADD_TEST_RULES_LABEL: 'true'
-      run: python .github/scripts/sync_test_rules.py
+      run: |
+        python scripts-main/.github/scripts/sync_test_rules.py
+        rm -rf scripts-main
 
     - name: Commit changes
       env:

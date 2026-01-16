@@ -45,6 +45,7 @@ from lib import (
 
 # Configuration from environment
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+GITHUB_WRITE_TOKEN = os.getenv('GITHUB_WRITE_TOKEN')  # Separate token for write operations (labels, comments)
 SUBLIME_API_TOKEN = os.getenv('SUBLIME_API_TOKEN')
 REPO_OWNER = os.getenv('REPO_OWNER', 'sublime-security')
 REPO_NAME = os.getenv('REPO_NAME', 'sublime-rules')
@@ -325,9 +326,13 @@ def handle_closed_prs(session):
     return deleted_ids
 
 
-def handle_pr_rules(session):
+def handle_pr_rules(session, write_session):
     """
     Process open PRs to sync rules to shared-samples branch.
+
+    Args:
+        session: GitHub API session for read operations
+        write_session: GitHub API session for write operations (labels, comments)
 
     Returns:
         set: Set of filenames that were processed
@@ -384,13 +389,13 @@ def handle_pr_rules(session):
                 # Apply bulk label if not already present
                 if not has_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL):
                     print(f"\tPR #{pr_number} doesn't have the '{BULK_PR_LABEL}' label. Applying...")
-                    apply_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL)
+                    apply_label(write_session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL)
 
                 continue
             else:
                 # Remove bulk label if rule count is now under limit
                 if has_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL):
-                    remove_label(session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL)
+                    remove_label(write_session, REPO_OWNER, REPO_NAME, pr_number, BULK_PR_LABEL)
 
         # Process files in the PR
         for file in files:
@@ -466,6 +471,14 @@ if __name__ == '__main__':
         print(line)
 
     print("Running shared-samples sync...")
+
+    # Debug: Check token configuration
+    print(f"Debug: GITHUB_TOKEN is {'set' if GITHUB_TOKEN else 'NOT SET'}")
+    print(f"Debug: GITHUB_WRITE_TOKEN is {'set' if GITHUB_WRITE_TOKEN else 'NOT SET'}")
+    if GITHUB_TOKEN and GITHUB_WRITE_TOKEN:
+        print(f"Debug: Tokens are {'SAME' if GITHUB_TOKEN == GITHUB_WRITE_TOKEN else 'DIFFERENT'}")
+
     session = create_github_session(GITHUB_TOKEN)
-    handle_pr_rules(session)
+    write_session = create_github_session(GITHUB_WRITE_TOKEN)
+    handle_pr_rules(session, write_session)
     handle_closed_prs(session)
