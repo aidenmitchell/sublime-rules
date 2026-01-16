@@ -1,0 +1,12 @@
+name: "Test Link Analysis Rule (GraphQL)"
+description: "Test rule containing ml.link_analysis for GraphQL testing"
+type: rule
+severity: high
+source: |
+  type.inbound
+  and any(ml.link_analysis(body.links).credphish_disposition,
+          . == "phishing")
+  and sender.email.domain.domain != "trusted.com"
+tags:
+  - "test"
+  - "link_analysis"
