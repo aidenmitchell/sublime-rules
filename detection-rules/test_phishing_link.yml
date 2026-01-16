@@ -1,0 +1,14 @@
+name: "Test Rule - Phishing Link Detection"
+description: "A second test rule for workflow validation"
+type: rule
+severity: high
+source: |
+  type.inbound
+  and any(body.links,
+          .href_url.domain.root_domain in ("bit.ly", "tinyurl.com")
+          and .href_url.domain.domain != sender.email.domain.domain
+  )
+tags:
+  - "test"
+  - "phishing"
+id: "31924d71-9541-58db-8c34-d9a1502e9f22"
