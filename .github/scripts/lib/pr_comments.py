@@ -101,7 +101,7 @@ This PR contains **{rule_count} rules**, which exceeds the maximum of **{max_rul
 
 This limit helps ensure the test-rules environment remains manageable. If you need to test these rules, consider:
 - Splitting the PR into smaller PRs with fewer rules
-- Contacting the team to request a manual sync
+- Contacting Detection Operations to request a manual sync
 """
     elif exclusion_type == LINK_ANALYSIS_EXCLUSION_LABEL:
         body = f"""{COMMENT_MARKER}
