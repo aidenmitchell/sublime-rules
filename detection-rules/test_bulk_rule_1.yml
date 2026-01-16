@@ -1,0 +1,10 @@
+name: "Test Bulk Rule $i"
+description: "Test rule for bulk PR testing"
+type: rule
+severity: medium
+source: |
+  type.inbound
+  and sender.email.domain.domain == "example.com"
+tags:
+  - "test"
+id: "27f8d12d-36ea-568e-87e4-c018e62d13f4"
