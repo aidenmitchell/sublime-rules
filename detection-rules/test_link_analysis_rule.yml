@@ -1,0 +1,19 @@
+name: "Test Link Analysis Rule - Credential Phishing"
+description: "Test rule that uses ml.link_analysis to detect credential phishing pages"
+type: "rule"
+severity: "high"
+authors:
+  - github.com/aidenmitchell
+source: |
+  type.inbound
+  and any(body.links,
+      ml.link_analysis(.).credentialed_phish.disposition == "phishing"
+  )
+tags:
+  - "Credential Phishing"
+attack_types:
+  - "Credential Phishing"
+tactics_and_techniques:
+  - "T1566"
+detection_methods:
+  - "URL analysis"
