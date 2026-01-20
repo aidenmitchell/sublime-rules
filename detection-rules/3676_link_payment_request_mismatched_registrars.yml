@@ -4,47 +4,21 @@ type: "rule"
 severity: "medium"
 source: |
   type.inbound
-  and (
-    strings.ilike(subject.subject,
-                  "*payment*",
-                  "*invoice*",
-                  "*transaction*",
-                  "*remittance*"
-    )
-    or strings.ilike(body.current_thread.text,
-                     "*payment*advice*",
-                     "*payment*notification*",
-                     "*transaction*processed*",
-                     "*incoming*payment*"
-    )
-    or any(ml.nlu_classifier(body.current_thread.text).tags,
-           .name == "payment" and .confidence in ("medium", "high")
-    )
+  and strings.ilike(subject.subject,
+                    "*payment*",
+                    "*invoice*",
+                    "*transaction*",
+                    "*remittance*"
   )
-  and any(ml.nlu_classifier(body.current_thread.text).topics,
-          .name == "Payment Information" and .confidence == "high"
-  )
-  and (
-    strings.ilike(body.current_thread.text,
-                  "*attach*advice*",
-                  "*attach*payment*",
-                  "*attached*"
-    )
-  )
+  and (strings.ilike(body.current_thread.text, "*view*payment*details*", ))
   and any(filter(body.links,
                  .href_url.domain.root_domain != sender.email.domain.root_domain
           ),
           network.whois(sender.email.domain).registrar_name != network.whois(.href_url.domain
           ).registrar_name
           and (
-            regex.icontains(.href_url.path,
-                            "payment",
-                            "invoice",
-                            "receipt",
-                            "transaction"
-            )
             // paths like /000, /123
-            or regex.match(.href_url.path, '^/\d+/?$')
+            regex.match(.href_url.path, '^/\d+/?$')
             // very short paths
             or regex.match(.href_url.path, '^/[a-z]{1,3}/?$')
           )
@@ -74,4 +48,4 @@ detection_methods:
 id: "4714464a-732d-5e08-9d91-85e7db03564d"
 og_id: "83e435b3-b94a-5f67-9536-7caf7606ca32"
 testing_pr: 3676
-testing_sha: 3deeed8f35bacbdb7a5186a5ece8c3de2b0774ae
+testing_sha: c7c625f06f6171f4de8dce3a900a79782a452edc
